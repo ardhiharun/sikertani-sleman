@@ -7,7 +7,7 @@ import openpyxl
 import os
 
 st.set_page_config(
-    page_title="SIKERIS - Sistem Informasi Kekeringan dan Risiko Pertanian",
+    page_title="SIKERTANI - Sistem Informasi Peringatan Dini Kekeringan Pertanian Berbasis Iklim",
     page_icon="🌾",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -71,67 +71,83 @@ try:
     # -----------------------------------------------------------------------------
     if mode_aplikasi == "📊 Monitoring Dashboard":
         st.sidebar.subheader("🔍 Filter Control Panel")
-        list_tahun = sorted(df_master['Tahun'].unique(), reverse=True)
-        tahun_pilihan = st.sidebar.selectbox("📅 Pilih Tahun:", list_tahun, index=0)
+        
+        tahun_terbaru = int(df_master['Tahun'].max()) if not df_master.empty else 2026
+        bulan_terbaru = int(df_master[df_master['Tahun'] == tahun_terbaru]['Bulan'].max()) if not df_master.empty else 10
 
-        df_tahun = df_master[df_master['Tahun'] == tahun_pilihan]
-        list_bulan = sorted(df_tahun['Bulan'].unique(), reverse=True)
-        bulan_pilihan = st.sidebar.selectbox("📆 Pilih Bulan:", list_bulan, index=0)
+        tahun_pilihan = st.sidebar.number_input(
+            "📅 Pilih / Ketik Tahun:", 
+            min_value=2015, 
+            max_value=2050, 
+            value=tahun_terbaru, 
+            step=1
+        )
+
+        bulan_pilihan = st.sidebar.number_input(
+            "📆 Pilih / Ketik Bulan (1-12):", 
+            min_value=1, 
+            max_value=12, 
+            value=bulan_terbaru, 
+            step=1
+        )
 
         data_aktif = df_master[(df_master['Tahun'] == tahun_pilihan) & (df_master['Bulan'] == bulan_pilihan)].copy()
 
-        def calculate_prod_impact(row):
-            hth = row['HTH']
-            ch = row['CH']
-            if hth > 44:
-                impact_pct = -0.42 * hth - 12.5
-                impact_pct = max(-85.0, round(impact_pct, 1))
-            elif 30 < hth <= 44:
-                impact_pct = round(-0.35 * hth - 5.0, 1)
-            elif 21 <= hth <= 30:
-                impact_pct = round(-0.15 * hth, 1)
-            else:
-                impact_pct = round(min(15.0, 0.05 * ch), 1)
-            
-            delta_kw = round((impact_pct / 100.0) * BASE_PRODUKSI_KW_HA, 2)
-            est_prod = round(BASE_PRODUKSI_KW_HA + delta_kw, 2)
-            return pd.Series([impact_pct, delta_kw, est_prod])
-
-        data_aktif[['Anomali_Produksi (%)', 'Perubahan (Kw/Ha)', 'Est_Produksi (Kw/Ha)']] = data_aktif.apply(calculate_prod_impact, axis=1)
-
-        st.title("🌾🌤️ SIKERIS - Sistem Informasi Kekeringan dan Risiko Pertanian")
+        st.title("🌾🌤️ SIKERTANI - Sistem Informasi Peringatan Dini Kekeringan Pertanian Berbasis Iklim")
         st.markdown(f"**Kabupaten Sleman | Monitoring Operasional Periode: Bulan {bulan_pilihan} - Tahun {tahun_pilihan}**")
         st.caption("Sistem Peringatan Dini Berbasis Data-Driven Klimatologi, Fixed Effects Logit, dan Machine Learning")
         st.markdown("---")
 
-        total_awas = len(data_aktif[data_aktif['Status_EWS'].str.contains('AWAS', na=False)])
-        total_siaga = len(data_aktif[data_aktif['Status_EWS'].str.contains('SIAGA', na=False)])
-        total_waspada = len(data_aktif[data_aktif['Status_EWS'].str.contains('WASPADA', na=False)])
-        total_aman = len(data_aktif[data_aktif['Status_EWS'].str.contains('AMAN', na=False)])
+        if data_aktif.empty:
+            st.warning(f"⚠️ Data operasional untuk **Bulan {bulan_pilihan} - Tahun {tahun_pilihan}** belum tersedia di database Master. Silakan tambahkan data terlebih dahulu melalui menu **📥 Import Excel Harian Massal**.")
+        else:
+            def calculate_prod_impact(row):
+                hth = row['HTH']
+                ch = row['CH']
+                if hth > 44:
+                    impact_pct = -0.42 * hth - 12.5
+                    impact_pct = max(-85.0, round(impact_pct, 1))
+                elif 30 < hth <= 44:
+                    impact_pct = round(-0.35 * hth - 5.0, 1)
+                elif 21 <= hth <= 30:
+                    impact_pct = round(-0.15 * hth, 1)
+                else:
+                    impact_pct = round(min(15.0, 0.05 * ch), 1)
+                
+                delta_kw = round((impact_pct / 100.0) * BASE_PRODUKSI_KW_HA, 2)
+                est_prod = round(BASE_PRODUKSI_KW_HA + delta_kw, 2)
+                return pd.Series([impact_pct, delta_kw, est_prod])
 
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("🔴 AWAS / KRITIS", f"{total_awas} Kapanewon", delta="Tindakan Tanggap Darurat", delta_color="inverse")
-        c2.metric("🟡 SIAGA", f"{total_siaga} Kapanewon", delta="Mobilisasi Pompa Air")
-        c3.metric("🟢 WASPADA", f"{total_waspada} Kapanewon", delta="Pantau Cadangan Embung")
-        c4.metric("⚪ AMAN / NORMAL", f"{total_aman} Kapanewon", delta="Kondisi Kondusif")
+            data_aktif[['Anomali_Produksi (%)', 'Perubahan (Kw/Ha)', 'Est_Produksi (Kw/Ha)']] = data_aktif.apply(calculate_prod_impact, axis=1)
 
-        st.markdown("---")
-        st.subheader("📋 Status Peringatan Dini & Est. Perubahan Produksi (Kw/Ha)")
-        
-        col_tampil = ['Kapanewon', 'Tanggal', 'CH', 'HTH', 'CH30', 'Status_EWS', 'Anomali_Produksi (%)', 'Perubahan (Kw/Ha)', 'Est_Produksi (Kw/Ha)']
-        df_tampil = data_aktif[col_tampil].reset_index(drop=True)
-        
-        st.dataframe(
-            df_tampil.style.format({
-                'CH': '{:.1f} mm',
-                'CH30': '{:.1f} mm',
-                'Anomali_Produksi (%)': '{:+.1f}%',
-                'Perubahan (Kw/Ha)': '{:+.2f} Kw/Ha',
-                'Est_Produksi (Kw/Ha)': '{:.2f} Kw/Ha'
-            }), 
-            use_container_width=True, 
-            height=380
-        )
+            total_awas = len(data_aktif[data_aktif['Status_EWS'].str.contains('AWAS', na=False)])
+            total_siaga = len(data_aktif[data_aktif['Status_EWS'].str.contains('SIAGA', na=False)])
+            total_waspada = len(data_aktif[data_aktif['Status_EWS'].str.contains('WASPADA', na=False)])
+            total_aman = len(data_aktif[data_aktif['Status_EWS'].str.contains('AMAN', na=False)])
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("🔴 AWAS / KRITIS", f"{total_awas} Kapanewon", delta="Tindakan Tanggap Darurat", delta_color="inverse")
+            c2.metric("🟡 SIAGA", f"{total_siaga} Kapanewon", delta="Mobilisasi Pompa Air")
+            c3.metric("🟢 WASPADA", f"{total_waspada} Kapanewon", delta="Pantau Cadangan Embung")
+            c4.metric("⚪ AMAN / NORMAL", f"{total_aman} Kapanewon", delta="Kondisi Kondusif")
+
+            st.markdown("---")
+            st.subheader("📋 Status Peringatan Dini & Est. Perubahan Produksi (Kw/Ha)")
+            
+            col_tampil = ['Kapanewon', 'Tanggal', 'CH', 'HTH', 'CH30', 'Status_EWS', 'Anomali_Produksi (%)', 'Perubahan (Kw/Ha)', 'Est_Produksi (Kw/Ha)']
+            df_tampil = data_aktif[col_tampil].reset_index(drop=True)
+            
+            st.dataframe(
+                df_tampil.style.format({
+                    'CH': '{:.1f} mm',
+                    'CH30': '{:.1f} mm',
+                    'Anomali_Produksi (%)': '{:+.1f}%',
+                    'Perubahan (Kw/Ha)': '{:+.2f} Kw/Ha',
+                    'Est_Produksi (Kw/Ha)': '{:.2f} Kw/Ha'
+                }), 
+                use_container_width=True, 
+                height=380
+            )
 
         st.markdown("---")
         st.subheader("📈 Analisis Histori Tren & Ambang Batas Kritis (Threshold HTH >= 44 Hari)")
@@ -139,6 +155,8 @@ try:
         kap_pilihan = st.selectbox("🎯 Pilih Kapanewon untuk Menganalisis Histori Tren:", sorted(df_master['Kapanewon'].unique()))
         
         df_kap = df_master[df_master['Kapanewon'] == kap_pilihan].sort_values('Tanggal')
+        tahun_awal = int(df_kap['Tahun'].min())
+        tahun_akhir = int(df_kap['Tahun'].max())
 
         fig = go.Figure()
 
@@ -168,7 +186,7 @@ try:
         )
 
         fig.update_layout(
-            title=f"Dinamika Klimatologi & Resiko Kekeringan di Kapanewon {kap_pilihan} (2015–2026)",
+            title=f"Dinamika Klimatologi & Resiko Kekeringan di Kapanewon {kap_pilihan} ({tahun_awal}–{tahun_akhir})",
             xaxis_title="Periode Pengamatan (Bulan - Tahun)",
             yaxis_title="Nilai Indikator",
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
@@ -193,7 +211,7 @@ try:
             
             with col_s1:
                 sim_kap = st.selectbox("📍 Pilih Kapanewon:", sorted(df_master['Kapanewon'].unique()))
-                sim_tahun = st.number_input("📅 Tahun Simulasi:", min_value=2024, max_value=2030, value=2026)
+                sim_tahun = st.number_input("📅 Tahun Simulasi:", min_value=2024, max_value=2050, value=2026)
                 sim_bulan = st.number_input("📆 Bulan Acuan Berjalan (1-12):", min_value=1, max_value=12, value=9)
 
             with col_s2:
@@ -287,13 +305,14 @@ try:
                 if sim_luas_tanam > 0:
                     tot_prod_ton = round((est_hasil_kw_ha * sim_luas_tanam) / 10.0, 2)
                     tot_delta_ton = round((delta_kw_ha * sim_luas_tanam) / 10.0, 2)
+                    warna_delta = "crimson" if tot_delta_ton < 0 else "green"
                     st.markdown("---")
                     st.markdown(f"#### 📊 Proyeksi Total Panen 3 Bulan Ke Depan (Luas Tanam: {sim_luas_tanam:.0f} Ha):")
                     st.markdown(f"* **Total Estimasi Produksi Kapanewon:** **{tot_prod_ton:,.2f} Ton**")
-                    st.markdown(f"* **Total Potensi Deviasi Produksi:** <span style='color:crimson;'>**{tot_delta_ton:,.2f} Ton**</span>", unsafe_allow_html=True)
+                    st.markdown(f"* **Total Potensi Deviasi Produksi:** <span style='color:{warna_delta};'>**{tot_delta_ton:+,.2f} Ton**</span>", unsafe_allow_html=True)
 
             with col_r2:
-                box_type(f"**Rekomendasi Aksi SOP Lapangan:**\\n\\n{sop_res}")
+                box_type(f"**Rekomendasi Aksi SOP Lapangan:**\n\n{sop_res}")
 
     # -----------------------------------------------------------------------------
     # MODE 3: IMPORT EXCEL HARIAN MASSAL (17 KAPANEWON MATRIKS 1-31 HARI)
@@ -305,7 +324,7 @@ try:
 
         col_m1, col_m2 = st.columns(2)
         with col_m1:
-            imp_tahun = st.number_input("📅 Pilih Tahun Pengamatan:", min_value=2024, max_value=2030, value=2026)
+            imp_tahun = st.number_input("📅 Pilih Tahun Pengamatan:", min_value=2024, max_value=2050, value=2026)
         with col_m2:
             imp_bulan = st.number_input("📆 Pilih Bulan Pengamatan (1-12):", min_value=1, max_value=12, value=10)
 
